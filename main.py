@@ -4,6 +4,7 @@ import asyncio
 from src.core.engine import BriefMeEngine
 from src.core.config import get_settings
 from src.utils.logger import get_logger
+from src.connectors.gmail import GmailConnector
 
 
 def parse_args():
@@ -37,22 +38,11 @@ async def run_now():
 
     engine = BriefMeEngine()
 
-    # TODO: Connector'lar eklenecek
-    # engine.add_connector(GmailConnector())
-    # engine.add_connector(LinkedInConnector())
-    # engine.add_connector(InstagramConnector())
-
-    # TODO: Analyzer'lar eklenecek
-    # engine.add_analyzer(ClassifierAnalyzer())
-    # engine.add_analyzer(SentimentAnalyzer())
-
-    # TODO: Notifier'lar eklenecek
-    # engine.add_notifier(TelegramNotifier())
-    # engine.add_notifier(EmailNotifier())
+    if settings.enable_gmail:
+        engine.add_connector(GmailConnector())
 
     if not engine.connectors:
         logger.warning("No connectors configured yet.")
-        logger.info("Next step: implement Gmail connector.")
         return
 
     report = await engine.run()
