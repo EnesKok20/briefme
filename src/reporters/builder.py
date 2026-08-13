@@ -1,21 +1,33 @@
 from datetime import datetime
+import html
 from pathlib import Path
+from typing import Any, List, Optional
 
-from src.reporters.charts import ChartGenerator
 from src.notifiers.base import Report
+from src.reporters.charts import ChartGenerator
 from src.utils.logger import get_logger
 
 
-class ReportBuilder:
+SOURCE_ICONS = {"gmail": "✉", "linkedin": "in", "instagram": "◎"}
+CATEGORY_LABELS = ChartGenerator.CATEGORY_LABELS
+SENTIMENT_LABELS = ChartGenerator.SENTIMENT_LABELS
+PRIORITY_LABELS = ChartGenerator.PRIORITY_LABELS
 
-    def __init__(self):
+
+class ReportBuilder:
+    """BriefMe günlük HTML raporlarını modern, koyu temalı ve duyarlı
+    (responsive) bir arayüzle oluşturan ve dosyalayan servis sınıfı.
+    """
+
+    def __init__(self, output_dir: str = "reports") -> None:
         self.logger = get_logger("reporter")
         self.charts = ChartGenerator()
-        self.output_dir = Path("reports")
+        self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def build(self, report: Report, messages: list = None, results: list = None) -> str:
-        self.logger.info("Building daily report...")
+    def build(self, report: Report, messages: Optional[List[Any]] = None, results: Optional[List[Any]] = None) -> str:
+        """Rapor verilerini ve grafikleri birleştirerek şık bir HTML raporu üretir."""
+        self.logger.info("Günlük rapor oluşturuluyor...")
 
         source_chart = self.charts.source_pie(report.by_source)
         category_chart = self.charts.category_bar(report.by_category)
@@ -24,259 +36,619 @@ class ReportBuilder:
         priority_chart = self.charts.priority_donut(results or [])
         threat_chart = self.charts.threat_summary(results or [])
 
-        critical_cards = self._cards(report.critical_items, "critical")
-        opportunity_cards = self._cards(report.opportunities, "opportunity")
-        all_cards = self._all_cards(messages, results)
-        cat_sections = self._category_view(messages, results)
-        threat_details = self._threat_view(messages, results)
+        critical_html = self._build_section(report.critical_items, "critical")
+        opportunity_html = self._build_section(report.opportunities, "opportunity")
 
-        html = f"""<!DOCTYPE html>
-<html lang="tr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>BriefMe</title>
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-*{{margin:0;padding:0;box-sizing:border-box}}
-html,body{{height:100%;overflow:hidden}}
-body{{font-family:'Inter',sans-serif;background:#0F172A;color:#E2E8F0}}
+        message_cards = ""
+        if messages and results:
+            message_cards = self._build_message_cards(messages, results)
 
-.app{{height:100vh;display:flex;flex-direction:column;max-width:1200px;margin:0 auto}}
+        threat_count = sum(1 for r in (results or []) if getattr(r, "is_threat", False))
 
-/* HEADER */
-.hdr{{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #1E293B;flex-shrink:0}}
-.hdr h1{{font-size:18px;font-weight:800;background:linear-gradient(135deg,#6366F1,#EC4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent}}
-.hdr .dt{{font-size:10px;color:#475569;margin-top:1px}}
-.hdr-right{{display:flex;gap:8px;align-items:center}}
-.lang{{background:#1E293B;border:1px solid #334155;border-radius:6px;padding:4px 10px;color:#94A3B8;font-size:11px;font-weight:600;cursor:pointer;transition:all .2s}}
-.lang:hover{{border-color:#6366F1;color:#6366F1}}
-
-/* STATS */
-.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px 16px;flex-shrink:0}}
-.st{{background:#1E293B;border-radius:10px;padding:10px 6px;text-align:center;border:1px solid #334155}}
-.st .n{{font-size:22px;font-weight:800}}
-.st .l{{font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}}
-
-/* NAV */
-.nav{{display:flex;gap:6px;padding:8px 16px;overflow-x:auto;flex-shrink:0;scrollbar-width:none}}
-.nav::-webkit-scrollbar{{display:none}}
-.nb{{flex-shrink:0;background:#1E293B;border:1px solid #334155;border-radius:8px;padding:7px 14px;color:#94A3B8;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:5px;white-space:nowrap}}
-.nb:hover{{border-color:#6366F1;color:#E2E8F0}}
-.nb.on{{background:#6366F1;border-color:#6366F1;color:#fff;box-shadow:0 4px 12px rgba(99,102,241,.3)}}
-
-/* CONTENT */
-.content{{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 16px;scrollbar-width:thin;scrollbar-color:#334155 transparent}}
-.content::-webkit-scrollbar{{width:4px}}
-.content::-webkit-scrollbar-thumb{{background:#334155;border-radius:4px}}
-
-.sec{{display:none;animation:fadeUp .25s ease}}
-.sec.on{{display:block}}
-@keyframes fadeUp{{from{{opacity:0;transform:translateY(8px)}}to{{opacity:1;transform:translateY(0)}}}}
-
-/* CHARTS */
-.cg{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}
-.cc{{background:#1E293B;border-radius:10px;padding:8px;border:1px solid #334155;overflow:hidden}}
-.cc .js-plotly-plot,.cc .plotly{{width:100%!important;height:100%!important}}
-
-/* MSG CARDS */
-.mc{{background:#1E293B;border-radius:10px;padding:14px;margin-bottom:8px;border:1px solid #334155;transition:border-color .2s}}
-.mc:hover{{border-color:#6366F1}}
-.mc.p-critical{{border-left:3px solid #F87171}}
-.mc.p-normal{{border-left:3px solid #60A5FA}}
-.mc.p-low{{border-left:3px solid #475569}}
-.mc .top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}}
-.mc .snd{{font-size:14px;font-weight:600}}
-.mc .sbj{{font-size:11px;color:#475569;margin-bottom:6px}}
-.mc .sum{{font-size:12px;color:#94A3B8;line-height:1.5;margin-bottom:8px}}
-.mc .act{{background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.15);color:#818CF8;padding:6px 10px;border-radius:6px;font-size:11px}}
-.mc .act::before{{content:"→ "}}
-
-/* BADGES */
-.b{{display:inline-block;padding:2px 8px;border-radius:5px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}}
-.b-work{{background:rgba(129,140,248,.12);color:#818CF8}}
-.b-personal{{background:rgba(52,211,153,.12);color:#34D399}}
-.b-finance{{background:rgba(251,191,36,.12);color:#FBBF24}}
-.b-promotion{{background:rgba(100,116,139,.12);color:#94A3B8}}
-.b-notification{{background:rgba(96,165,250,.12);color:#60A5FA}}
-.b-social{{background:rgba(244,114,182,.12);color:#F472B6}}
-.b-threat{{background:rgba(248,113,113,.12);color:#F87171}}
-.b-positive{{background:rgba(52,211,153,.12);color:#34D399}}
-.b-negative{{background:rgba(248,113,113,.12);color:#F87171}}
-.b-neutral{{background:rgba(100,116,139,.12);color:#94A3B8}}
-.b-urgent{{background:rgba(251,191,36,.12);color:#FBBF24}}
-.b-gmail{{background:rgba(248,113,113,.12);color:#F87171}}
-.b-linkedin{{background:rgba(96,165,250,.12);color:#60A5FA}}
-.b-instagram{{background:rgba(244,114,182,.12);color:#F472B6}}
-
-.tags{{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}}
-.tg{{background:#0F172A;color:#475569;padding:2px 8px;border-radius:4px;font-size:9px;border:1px solid #1E293B}}
-
-.empty{{text-align:center;padding:30px;color:#475569}}
-.empty .ei{{font-size:32px;margin-bottom:8px}}
-
-.cat-hdr{{font-size:13px;font-weight:600;margin:14px 0 8px;display:flex;align-items:center;gap:6px}}
-.cat-hdr .cnt{{color:#475569;font-weight:400;font-size:11px}}
-
-/* FOOTER */
-.ftr{{text-align:center;padding:10px;color:#334155;font-size:10px;flex-shrink:0;border-top:1px solid #1E293B}}
-
-@media(max-width:768px){{
-    .cg{{grid-template-columns:repeat(2,1fr)}}
-    .stats{{grid-template-columns:repeat(4,1fr);gap:6px}}
-    .st .n{{font-size:18px}}
-}}
-@media(max-width:480px){{
-    .cg{{grid-template-columns:1fr 1fr}}
-    .hdr h1{{font-size:16px}}
-}}
-</style>
-</head>
-<body>
-<div class="app">
-
-<div class="hdr">
-    <div>
-        <h1>BriefMe</h1>
-        <div class="dt" id="dtText">{report.date} — <span data-tr="Günlük Rapor" data-en="Daily Report">Günlük Rapor</span></div>
-    </div>
-    <div class="hdr-right">
-        <button class="lang" onclick="tLang()">EN/TR</button>
-    </div>
-</div>
-
-<div class="stats">
-    <div class="st"><div class="n">{report.total_messages}</div><div class="l" data-tr="Toplam" data-en="Total">Toplam</div></div>
-    <div class="st"><div class="n" style="color:#F87171">{len(report.critical_items)}</div><div class="l" data-tr="Kritik" data-en="Critical">Kritik</div></div>
-    <div class="st"><div class="n" style="color:#34D399">{len(report.opportunities)}</div><div class="l" data-tr="Fırsat" data-en="Opportunity">Fırsat</div></div>
-    <div class="st"><div class="n" style="color:#FBBF24">{report.by_sentiment.get('urgent',0)}</div><div class="l" data-tr="Acil" data-en="Urgent">Acil</div></div>
-</div>
-
-<div class="nav">
-    <button class="nb on" onclick="go('ov',this)"><span>📊</span><span data-tr="Genel" data-en="Overview">Genel</span></button>
-    <button class="nb" onclick="go('cr',this)"><span>🔴</span><span data-tr="Kritik" data-en="Critical">Kritik</span></button>
-    <button class="nb" onclick="go('op',this)"><span>🟢</span><span data-tr="Fırsatlar" data-en="Good News">Fırsatlar</span></button>
-    <button class="nb" onclick="go('ms',this)"><span>📬</span><span data-tr="Mesajlar" data-en="Messages">Mesajlar</span></button>
-    <button class="nb" onclick="go('ct',this)"><span>📁</span><span data-tr="Kategoriler" data-en="Categories">Kategoriler</span></button>
-    <button class="nb" onclick="go('sc',this)"><span>🛡️</span><span data-tr="Güvenlik" data-en="Security">Güvenlik</span></button>
-</div>
-
-<div class="content">
-
-    <div class="sec on" id="s-ov">
-        <div class="cg">
-            <div class="cc">{source_chart}</div>
-            <div class="cc">{category_chart}</div>
-            <div class="cc">{sentiment_gauge}</div>
-            <div class="cc">{sentiment_chart}</div>
-            <div class="cc">{priority_chart}</div>
-            <div class="cc">{threat_chart}</div>
-        </div>
-    </div>
-
-    <div class="sec" id="s-cr">
-        {critical_cards if critical_cards else '<div class="empty"><div class="ei">✅</div><div data-tr="Kritik mesaj yok" data-en="No critical messages">Kritik mesaj yok</div></div>'}
-    </div>
-
-    <div class="sec" id="s-op">
-        {opportunity_cards if opportunity_cards else '<div class="empty"><div class="ei">📭</div><div data-tr="Fırsat bulunamadı" data-en="No opportunities found">Fırsat bulunamadı</div></div>'}
-    </div>
-
-    <div class="sec" id="s-ms">
-        {all_cards if all_cards else '<div class="empty"><div class="ei">📭</div><div data-tr="Mesaj yok" data-en="No messages">Mesaj yok</div></div>'}
-    </div>
-
-    <div class="sec" id="s-ct">
-        {cat_sections}
-    </div>
-
-    <div class="sec" id="s-sc">
-        <div class="cc" style="margin-bottom:12px">{threat_chart}</div>
-        {threat_details}
-    </div>
-
-</div>
-
-<div class="ftr">BriefMe — {datetime.now().strftime("%H:%M:%S")}</div>
-
-</div>
-
-<script>
-let lang='tr';
-function go(id,btn){{
-    document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
-    document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
-    document.getElementById('s-'+id).classList.add('on');
-    if(btn)btn.classList.add('on');
-    document.querySelector('.content').scrollTop=0;
-    setTimeout(()=>window.dispatchEvent(new Event('resize')),100);
-}}
-function tLang(){{
-    lang=lang==='tr'?'en':'tr';
-    document.querySelectorAll('[data-tr][data-en]').forEach(e=>{{e.textContent=e.getAttribute('data-'+lang)}});
-}}
-window.addEventListener('resize',()=>{{
-    document.querySelectorAll('.js-plotly-plot').forEach(p=>{{
-        if(p&&p.layout)Plotly.Plots.resize(p);
-    }});
-}});
-</script>
-</body>
-</html>"""
+        html_content = self._get_html_template(
+            report=report,
+            threat_count=threat_count,
+            source_chart=source_chart,
+            category_chart=category_chart,
+            sentiment_gauge=sentiment_gauge,
+            sentiment_chart=sentiment_chart,
+            priority_chart=priority_chart,
+            threat_chart=threat_chart,
+            critical_html=critical_html,
+            opportunity_html=opportunity_html,
+            message_cards=message_cards,
+        )
 
         filename = f"briefme_{report.date}.html"
         filepath = self.output_dir / filename
-        filepath.write_text(html, encoding="utf-8")
-        self.logger.info(f"Report saved: {filepath}")
-        report.summary_html = html
+        filepath.write_text(html_content, encoding="utf-8")
+        self.logger.info(f"Rapor kaydedildi: {filepath}")
+
+        report.summary_html = html_content
         return str(filepath)
 
-    def _cards(self, items, ctype):
-        if not items: return ""
-        h = ""
-        for i in items:
-            src = i.get("source","")
-            h += f'<div class="mc p-{ctype}"><div class="top"><div class="snd">{i.get("sender","?")}</div><span class="b b-{src}">{src.upper()}</span></div><div class="sbj">{i.get("subject","")}</div><div class="sum">{i.get("summary","")}</div></div>'
-        return h
+    def _source_dot(self, source: str) -> str:
+        color = ChartGenerator.SOURCE_COLORS.get(source, ChartGenerator.INK_MUTED)
+        icon = SOURCE_ICONS.get(source, "•")
+        return f'<span class="source-dot" style="--dot:{color}" title="{html.escape(source.capitalize())}">{icon}</span>'
 
-    def _all_cards(self, msgs, results):
-        if not msgs or not results: return ""
-        h = ""
-        for m, r in zip(msgs, results):
-            cat = getattr(r,"category","")
-            sent = getattr(r,"sentiment","")
-            pri = getattr(r,"priority","normal")
-            summary = getattr(r,"summary","")
-            action = getattr(r,"key_action","")
-            tags = getattr(r,"tags",[])
-            act_h = f'<div class="act">{action}</div>' if action else ""
-            tag_h = '<div class="tags">'+"".join(f'<span class="tg">{t}</span>' for t in tags)+'</div>' if tags else ""
-            h += f'<div class="mc p-{pri}"><div class="top"><div class="snd">{m.sender_name or m.sender}</div><div><span class="b b-{cat}">{cat}</span> <span class="b b-{sent}">{sent}</span></div></div><div class="sbj">{m.subject}</div><div class="sum">{summary}</div>{act_h}{tag_h}</div>'
-        return h
+    def _build_section(self, items: List[dict], section_type: str) -> str:
+        """Kritik veya fırsat öğeleri için özel bölüm kartları oluşturur."""
+        if not items:
+            return ""
 
-    def _category_view(self, msgs, results):
-        if not msgs or not results: return ""
-        cats = {}
-        for m, r in zip(msgs, results):
-            c = getattr(r,"category","uncategorized")
-            cats.setdefault(c, []).append((m, r))
-        icons = {"work":"💼","personal":"👤","finance":"💰","promotion":"📢","notification":"🔔","social":"👥","threat":"⚠️","uncategorized":"📎"}
-        h = ""
-        for c, items in sorted(cats.items(), key=lambda x:len(x[1]), reverse=True):
-            h += f'<div class="cat-hdr">{icons.get(c,"📎")} {c.capitalize()} <span class="cnt">({len(items)})</span></div>'
-            for m, r in items:
-                pri = getattr(r,"priority","normal")
-                h += f'<div class="mc p-{pri}"><div class="snd">{m.sender_name or m.sender}</div><div class="sbj">{m.subject}</div><div class="sum">{getattr(r,"summary","")}</div></div>'
-        return h
+        icons = {"critical": "🔴", "opportunity": "🟢"}
+        titles = {"critical": "Kritik & Acil", "opportunity": "Fırsatlar & Güzel Haberler"}
+        anchors = {"critical": "critical", "opportunity": "opportunities"}
 
-    def _threat_view(self, msgs, results):
-        if not msgs or not results: return ""
-        threats = [(m,r) for m,r in zip(msgs,results) if getattr(r,"is_threat",False)]
-        if not threats:
-            return '<div class="empty"><div class="ei">✅</div><div data-tr="Tehdit yok, güvendesiniz" data-en="No threats, you are safe">Tehdit yok, güvendesiniz</div></div>'
-        h = ""
-        for m, r in threats:
-            conf = int(getattr(r,"threat_confidence",0)*100)
-            h += f'<div class="mc p-critical"><div class="top"><div class="snd">{m.sender_name or m.sender}</div><span class="b b-threat">{getattr(r,"threat_type","").upper()}</span></div><div class="sbj">{m.subject}</div><div class="sum">{getattr(r,"summary","")}</div><div style="margin-top:6px;font-size:11px;color:#F87171">Tehdit Güveni: {conf}%</div></div>'
-        return h
+        cards = ""
+        for item in items:
+            source = html.escape(item.get("source", ""))
+            sender = html.escape(item.get("sender", "Bilinmeyen"))
+            subject = html.escape(item.get("subject", ""))
+            summary = html.escape(item.get("summary", ""))
+
+            cards += f"""
+            <div class="message-card {section_type}">
+                <div class="card-top">
+                    {self._source_dot(item.get("source", ""))}
+                    <span class="badge {source}">{CATEGORY_LABELS.get(source, source.capitalize())}</span>
+                </div>
+                <div class="sender">{sender}</div>
+                <div class="subject">{subject}</div>
+                <div class="summary">{summary}</div>
+            </div>"""
+
+        return f"""
+        <section class="section" id="{anchors.get(section_type, '')}">
+            <h2>{icons.get(section_type, '')} {titles.get(section_type, '')}<span class="count-pill">{len(items)}</span></h2>
+            <div class="card-list">{cards}</div>
+        </section>"""
+
+    def _build_message_cards(self, messages: List[Any], results: List[Any]) -> str:
+        """Tüm mesajlar için filtrelenebilir, detaylı kartlar üretir."""
+        cards = ""
+        for msg, result in zip(messages, results):
+            category = getattr(result, "category", "uncategorized") or "uncategorized"
+            sentiment = getattr(result, "sentiment", "neutral") or "neutral"
+            priority = getattr(result, "priority", "normal") or "normal"
+            source = getattr(msg, "source", "")
+            is_threat = getattr(result, "is_threat", False)
+            response_needed = getattr(result, "response_needed", False)
+            deadline = getattr(result, "deadline", "")
+            summary = html.escape(getattr(result, "summary", ""))
+            key_action = html.escape(getattr(result, "key_action", ""))
+            tags = getattr(result, "tags", [])
+
+            tag_html = ""
+            if tags:
+                tag_html = '<div class="tags">' + "".join(
+                    f'<span class="tag">{html.escape(str(t))}</span>' for t in tags
+                ) + "</div>"
+
+            action_html = ""
+            if key_action:
+                action_html = f'<div class="action">→ {key_action}</div>'
+
+            meta_chips = ""
+            if is_threat:
+                meta_chips += '<span class="chip chip-threat">⚠ Tehdit tespit edildi</span>'
+            if response_needed:
+                meta_chips += '<span class="chip chip-response">⏰ Yanıt gerekli</span>'
+            if deadline:
+                meta_chips += f'<span class="chip chip-deadline">📅 {html.escape(str(deadline))}</span>'
+            meta_html = f'<div class="meta-chips">{meta_chips}</div>' if meta_chips else ""
+
+            sender_name = html.escape(getattr(msg, "sender_name", None) or getattr(msg, "sender", "Bilinmeyen"))
+            subject = html.escape(getattr(msg, "subject", ""))
+            search_blob = html.escape(f"{sender_name} {subject}".lower())
+
+            cat_esc = html.escape(category)
+            sent_esc = html.escape(sentiment)
+            pr_esc = html.escape(priority)
+
+            cards += f"""
+            <div class="message-card {pr_esc}" data-priority="{pr_esc}" data-category="{cat_esc}" data-search="{search_blob}">
+                <div class="card-top">
+                    {self._source_dot(source)}
+                    <span class="badge {cat_esc}">{CATEGORY_LABELS.get(category, category.capitalize())}</span>
+                    <span class="badge {sent_esc}">{SENTIMENT_LABELS.get(sentiment, sentiment.capitalize())}</span>
+                    <span class="priority-tag {pr_esc}">{PRIORITY_LABELS.get(priority, priority.capitalize())}</span>
+                </div>
+                <div class="sender">{sender_name}</div>
+                <div class="subject">{subject}</div>
+                <div class="summary">{summary}</div>
+                {action_html}
+                {meta_html}
+                {tag_html}
+            </div>"""
+
+        return f"""
+        <section class="section" id="messages">
+            <h2>📬 Tüm Mesajlar<span class="count-pill">{len(messages)}</span></h2>
+            <div class="toolbar">
+                <input type="text" id="msg-search" class="search-input" placeholder="Gönderen veya konuya göre ara…">
+                <div class="filter-chips" id="priority-filters">
+                    <button class="chip-filter active" data-filter="all">Tümü</button>
+                    <button class="chip-filter" data-filter="critical">Kritik</button>
+                    <button class="chip-filter" data-filter="normal">Normal</button>
+                    <button class="chip-filter" data-filter="low">Düşük</button>
+                </div>
+            </div>
+            <div class="card-list" id="message-list">{cards}</div>
+            <div class="empty-state" id="empty-state" hidden>Aramanızla eşleşen mesaj bulunamadı.</div>
+        </section>"""
+
+    def _badge_css(self) -> str:
+        colors = {**ChartGenerator.CATEGORY_COLORS, **ChartGenerator.SENTIMENT_COLORS}
+        rules = [
+            f'.badge.{key} {{ background: {color}26; color: {color}; box-shadow: inset 0 0 0 1px {color}4d; }}'
+            for key, color in colors.items()
+        ]
+        return "\n        ".join(rules)
+
+    def _priority_css(self) -> str:
+        rules = []
+        for key, color in ChartGenerator.PRIORITY_COLORS.items():
+            rules.append(f'.message-card.{key} {{ border-left-color: {color}; }}')
+            rules.append(f'.priority-tag.{key} {{ color: {color}; }}')
+        return "\n        ".join(rules)
+
+    def _get_html_template(self, **kwargs) -> str:
+        """HTML şablonunu ve modern CSS stil tanımlarını döner."""
+        report: Report = kwargs.get("report")
+        generation_time = datetime.now().strftime("%H:%M:%S")
+        threat_count = kwargs.get("threat_count", 0)
+
+        nav_links = ""
+        if kwargs.get("critical_html"):
+            nav_links += '<a href="#critical">Kritik</a>'
+        if kwargs.get("opportunity_html"):
+            nav_links += '<a href="#opportunities">Fırsatlar</a>'
+        if kwargs.get("message_cards"):
+            nav_links += '<a href="#messages">Tüm Mesajlar</a>'
+
+        extra_stat = ""
+        if kwargs.get("threat_chart"):
+            extra_stat = f"""
+            <div class="stat-card" style="--accent: {ChartGenerator.STATUS_COLORS['serious']}">
+                <div class="stat-icon">🛡️</div>
+                <div class="stat-body">
+                    <div class="number">{threat_count}</div>
+                    <div class="label">Tehdit</div>
+                </div>
+            </div>"""
+
+        chart_blocks = [
+            kwargs.get("source_chart"), kwargs.get("category_chart"),
+            kwargs.get("sentiment_gauge"), kwargs.get("sentiment_chart"),
+            kwargs.get("priority_chart"), kwargs.get("threat_chart"),
+        ]
+        chart_html = "\n".join(
+            f'<div class="chart-card">{c}</div>' for c in chart_blocks if c
+        )
+
+        return f"""<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BriefMe — Günlük Rapor ({report.date})</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        :root {{
+            --bg-plane: #05070f;
+            --bg-glow-1: #1e2761;
+            --bg-glow-2: #0f766e;
+            --surface: #0f172a;
+            --surface-alt: #131c31;
+            --card-bg: rgba(30, 41, 59, 0.45);
+            --card-border: rgba(148, 163, 184, 0.10);
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --brand: #3987e5;
+            --brand-2: #9085e9;
+            --radius-sm: 10px;
+            --radius-md: 16px;
+            --radius-lg: 22px;
+            --shadow-soft: 0 8px 30px rgba(0,0,0,0.35);
+        }}
+
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+
+        html {{ scroll-behavior: smooth; color-scheme: dark; }}
+
+        body {{
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-plane);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+            background-image:
+                radial-gradient(700px circle at 12% -10%, rgba(30,39,97,0.55), transparent 55%),
+                radial-gradient(600px circle at 100% 0%, rgba(15,118,110,0.25), transparent 50%);
+            background-repeat: no-repeat;
+        }}
+
+        .container {{ max-width: 1160px; margin: 0 auto; padding: 28px 20px 60px; }}
+
+        @media (prefers-reduced-motion: no-preference) {{
+            .fade-in {{ animation: fadeInUp 0.5s ease both; }}
+        }}
+        @keyframes fadeInUp {{
+            from {{ opacity: 0; transform: translateY(10px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+
+        /* Header */
+        .header {{
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, #1e2761 0%, #2a3a8c 45%, #3987e5 100%);
+            padding: 44px 40px;
+            border-radius: var(--radius-lg);
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-soft);
+        }}
+
+        .header::after {{
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(420px circle at 90% -20%, rgba(255,255,255,0.18), transparent 60%);
+            pointer-events: none;
+        }}
+
+        .header-top {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; position: relative; }}
+
+        .brand {{ display: flex; align-items: center; gap: 12px; }}
+
+        .brand-mark {{
+            width: 44px; height: 44px; border-radius: 12px;
+            background: rgba(255,255,255,0.14);
+            border: 1px solid rgba(255,255,255,0.25);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; font-weight: 800; color: #fff;
+            backdrop-filter: blur(6px);
+        }}
+
+        .brand h1 {{ font-size: 26px; font-weight: 800; letter-spacing: -0.5px; color: #fff; }}
+        .brand .tagline {{ font-size: 12.5px; color: rgba(255,255,255,0.75); font-weight: 500; }}
+
+        .header-date {{
+            font-size: 13px; font-weight: 600; color: #fff;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 8px 16px; border-radius: 999px;
+            backdrop-filter: blur(6px);
+        }}
+
+        /* Sticky quick-nav */
+        .quicknav {{
+            position: sticky; top: 0; z-index: 20;
+            display: flex; gap: 8px; overflow-x: auto;
+            padding: 10px 4px; margin-bottom: 20px;
+            background: rgba(5,7,15,0.75);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--card-border);
+        }}
+        .quicknav a {{
+            flex: 0 0 auto;
+            color: var(--text-secondary); text-decoration: none;
+            font-size: 13px; font-weight: 600;
+            padding: 7px 14px; border-radius: 999px;
+            border: 1px solid var(--card-border);
+            transition: all 0.15s ease;
+        }}
+        .quicknav a:hover {{ color: #fff; border-color: var(--brand); background: rgba(57,135,229,0.12); }}
+
+        /* Stat strip */
+        .stats-row {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 14px;
+            margin-bottom: 20px;
+        }}
+
+        .stat-card {{
+            --accent: var(--brand);
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 18px 20px;
+            display: flex; align-items: center; gap: 14px;
+            box-shadow: var(--shadow-soft);
+            backdrop-filter: blur(10px);
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }}
+        .stat-card:hover {{ transform: translateY(-3px); border-color: var(--accent); }}
+
+        .stat-icon {{
+            width: 42px; height: 42px; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 19px;
+            background: color-mix(in srgb, var(--accent) 18%, transparent);
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+        }}
+
+        .stat-card .number {{ font-size: 28px; font-weight: 800; color: var(--text-primary); line-height: 1.1; }}
+        .stat-card .label {{ font-size: 12.5px; color: var(--text-secondary); margin-top: 2px; font-weight: 500; }}
+
+        /* Charts */
+        .chart-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 14px;
+            margin-bottom: 20px;
+        }}
+
+        .chart-card {{
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 14px;
+            box-shadow: var(--shadow-soft);
+            backdrop-filter: blur(10px);
+            display: flex; justify-content: center; align-items: center;
+            min-height: 240px;
+            overflow: hidden;
+        }}
+
+        /* Sections */
+        .section {{
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 24px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow-soft);
+            backdrop-filter: blur(10px);
+            scroll-margin-top: 70px;
+        }}
+
+        .section h2 {{
+            font-size: 17px; font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            display: flex; align-items: center; gap: 10px;
+        }}
+
+        .count-pill {{
+            font-size: 12px; font-weight: 700; color: var(--text-secondary);
+            background: rgba(148,163,184,0.12);
+            padding: 2px 10px; border-radius: 999px;
+        }}
+
+        .card-list {{ display: flex; flex-direction: column; gap: 10px; }}
+
+        /* Toolbar */
+        .toolbar {{ display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }}
+
+        .search-input {{
+            flex: 1 1 220px;
+            background: rgba(15,23,42,0.6);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            padding: 9px 14px; border-radius: 10px; font-size: 13.5px;
+            font-family: inherit;
+        }}
+        .search-input::placeholder {{ color: var(--text-muted); }}
+        .search-input:focus {{ outline: none; border-color: var(--brand); }}
+
+        .filter-chips {{ display: flex; gap: 6px; flex-wrap: wrap; }}
+        .chip-filter {{
+            font-family: inherit;
+            font-size: 12.5px; font-weight: 600;
+            color: var(--text-secondary);
+            background: rgba(148,163,184,0.08);
+            border: 1px solid var(--card-border);
+            padding: 7px 14px; border-radius: 999px; cursor: pointer;
+            transition: all 0.15s ease;
+        }}
+        .chip-filter:hover {{ color: var(--text-primary); }}
+        .chip-filter.active {{ background: var(--brand); color: #fff; border-color: var(--brand); }}
+
+        .empty-state {{
+            text-align: center; padding: 30px; color: var(--text-muted); font-size: 13.5px;
+        }}
+
+        /* Message card */
+        .message-card {{
+            border: 1px solid var(--card-border);
+            border-left: 3px solid var(--text-muted);
+            border-radius: var(--radius-sm);
+            padding: 16px 18px;
+            background: rgba(15, 23, 42, 0.4);
+            transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+        }}
+        .message-card:hover {{
+            transform: translateX(2px);
+            background: rgba(15, 23, 42, 0.65);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+        }}
+
+        .card-top {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }}
+
+        .source-dot {{
+            width: 22px; height: 22px; border-radius: 7px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10.5px; font-weight: 700; color: #05070f;
+            background: var(--dot);
+            flex-shrink: 0;
+        }}
+
+        .message-card .sender {{ font-weight: 700; color: var(--text-primary); font-size: 14.5px; }}
+        .message-card .subject {{ color: var(--text-secondary); font-size: 13px; margin: 3px 0 6px; }}
+        .message-card .summary {{ color: #cbd5e1; font-size: 13.5px; margin: 4px 0; }}
+
+        .message-card .action {{
+            background: rgba(57, 135, 229, 0.12);
+            color: #7ab0f2;
+            padding: 7px 12px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            margin-top: 8px;
+            font-weight: 600;
+            display: inline-block;
+        }}
+
+        .meta-chips {{ display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }}
+        .chip {{ font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }}
+        .chip-threat {{ background: rgba(208,59,59,0.15); color: #f28b8b; }}
+        .chip-response {{ background: rgba(250,178,25,0.15); color: #f5c463; }}
+        .chip-deadline {{ background: rgba(148,163,184,0.12); color: var(--text-secondary); }}
+
+        .tags {{ display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }}
+        .tag {{ background: rgba(148,163,184,0.10); color: var(--text-muted); padding: 3px 10px; border-radius: 999px; font-size: 11px; }}
+
+        .priority-tag {{
+            margin-left: auto;
+            font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+        }}
+
+        .badge {{
+            display: inline-block;
+            padding: 3px 11px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+        }}
+        {self._badge_css()}
+        {self._priority_css()}
+
+        .footer {{
+            text-align: center;
+            padding: 30px 10px 10px;
+            color: var(--text-muted);
+            font-size: 12.5px;
+        }}
+        .footer strong {{ color: var(--text-secondary); }}
+
+        @media (max-width: 640px) {{
+            .header {{ padding: 30px 22px; }}
+            .brand h1 {{ font-size: 21px; }}
+            .container {{ padding: 18px 12px 40px; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header fade-in">
+            <div class="header-top">
+                <div class="brand">
+                    <div class="brand-mark">B</div>
+                    <div>
+                        <h1>BriefMe</h1>
+                        <div class="tagline">Günlük İletişim İstihbarat Raporu</div>
+                    </div>
+                </div>
+                <div class="header-date">{report.date} · {report.total_messages} mesaj</div>
+            </div>
+        </div>
+
+        <nav class="quicknav">
+            <a href="#overview">Genel Bakış</a>
+            {nav_links}
+        </nav>
+
+        <div id="overview">
+            <div class="stats-row fade-in">
+                <div class="stat-card" style="--accent: {ChartGenerator.PRIORITY_COLORS['normal']}">
+                    <div class="stat-icon">📨</div>
+                    <div class="stat-body">
+                        <div class="number">{report.total_messages}</div>
+                        <div class="label">Toplam Mesaj</div>
+                    </div>
+                </div>
+                <div class="stat-card" style="--accent: {ChartGenerator.STATUS_COLORS['critical']}">
+                    <div class="stat-icon">🚨</div>
+                    <div class="stat-body">
+                        <div class="number">{len(report.critical_items)}</div>
+                        <div class="label">Kritik</div>
+                    </div>
+                </div>
+                <div class="stat-card" style="--accent: {ChartGenerator.STATUS_COLORS['good']}">
+                    <div class="stat-icon">✨</div>
+                    <div class="stat-body">
+                        <div class="number">{len(report.opportunities)}</div>
+                        <div class="label">Fırsat</div>
+                    </div>
+                </div>
+                <div class="stat-card" style="--accent: {ChartGenerator.STATUS_COLORS['warning']}">
+                    <div class="stat-icon">🔥</div>
+                    <div class="stat-body">
+                        <div class="number">{report.by_sentiment.get('urgent', 0)}</div>
+                        <div class="label">Acil</div>
+                    </div>
+                </div>
+                {extra_stat}
+            </div>
+
+            <div class="chart-grid fade-in">{chart_html}</div>
+        </div>
+
+        {kwargs.get('critical_html')}
+        {kwargs.get('opportunity_html')}
+        {kwargs.get('message_cards')}
+
+        <div class="footer">
+            <strong>BriefMe</strong> — AI-Powered Communication Intelligence<br>
+            Rapor oluşturulma: {generation_time}
+        </div>
+    </div>
+
+    <script>
+    (function () {{
+        var search = document.getElementById('msg-search');
+        var filterWrap = document.getElementById('priority-filters');
+        var list = document.getElementById('message-list');
+        var empty = document.getElementById('empty-state');
+        if (!list) return;
+
+        var cards = Array.prototype.slice.call(list.querySelectorAll('.message-card'));
+        var activeFilter = 'all';
+
+        function applyFilters() {{
+            var q = (search && search.value || '').trim().toLowerCase();
+            var visible = 0;
+            cards.forEach(function (card) {{
+                var matchesFilter = activeFilter === 'all' || card.dataset.priority === activeFilter;
+                var matchesSearch = !q || card.dataset.search.indexOf(q) !== -1;
+                var show = matchesFilter && matchesSearch;
+                card.style.display = show ? '' : 'none';
+                if (show) visible++;
+            }});
+            if (empty) empty.hidden = visible !== 0;
+        }}
+
+        if (search) search.addEventListener('input', applyFilters);
+        if (filterWrap) {{
+            filterWrap.addEventListener('click', function (e) {{
+                var btn = e.target.closest('.chip-filter');
+                if (!btn) return;
+                filterWrap.querySelectorAll('.chip-filter').forEach(function (b) {{ b.classList.remove('active'); }});
+                btn.classList.add('active');
+                activeFilter = btn.dataset.filter;
+                applyFilters();
+            }});
+        }}
+    }})();
+
+    (function () {{
+        function resizeCharts() {{
+            if (!window.Plotly) return;
+            document.querySelectorAll('.js-plotly-plot').forEach(function (gd) {{ Plotly.Plots.resize(gd); }});
+        }}
+        window.addEventListener('load', resizeCharts);
+        if (document.fonts && document.fonts.ready) {{
+            document.fonts.ready.then(resizeCharts);
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
