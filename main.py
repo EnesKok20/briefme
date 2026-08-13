@@ -6,6 +6,7 @@ from src.core.config import get_settings
 from src.utils.logger import get_logger
 from src.connectors.gmail import GmailConnector
 from src.analyzers.email_analyzer import EmailAnalyzer
+from src.connectors.instagram import InstagramConnector
 
 
 def parse_args():
@@ -42,6 +43,7 @@ async def run_now():
     if settings.enable_gmail:
         engine.add_analyzer(EmailAnalyzer())
         engine.add_connector(GmailConnector())
+        engine.add_connector(InstagramConnector())
 
     if not engine.connectors:
         logger.warning("No connectors configured yet.")

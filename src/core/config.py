@@ -16,8 +16,10 @@ class Settings(BaseSettings):
     #Linkedin
     enable_linkedin : bool = True
 
-    #Instagram
-    enable_instagram : bool =False
+    # Instagram
+    enable_instagram: bool = True
+    instagram_username: str = ""
+    instagram_password: str = ""
 
     #Telegram Bildirimi
     telegram_bot_token: str = ""
