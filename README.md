@@ -8,7 +8,7 @@ You don't have time to read everything. But you can't afford to miss the importa
 
 BriefMe is an AI-powered automation system that reads all your messages across platforms, understands what each one is about, and delivers a single daily briefing to your phone — so you walk into your day already knowing what needs your attention.
 
----
+--------
 
 ## What You Get Every Day
 
