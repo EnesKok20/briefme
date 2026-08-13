@@ -5,6 +5,7 @@ from src.core.engine import BriefMeEngine
 from src.core.config import get_settings
 from src.utils.logger import get_logger
 from src.connectors.gmail import GmailConnector
+from src.analyzers.email_analyzer import EmailAnalyzer
 
 
 def parse_args():
@@ -39,6 +40,7 @@ async def run_now():
     engine = BriefMeEngine()
 
     if settings.enable_gmail:
+        engine.add_analyzer(EmailAnalyzer())
         engine.add_connector(GmailConnector())
 
     if not engine.connectors:

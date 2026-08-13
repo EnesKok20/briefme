@@ -31,6 +31,11 @@ class AnalysisResult:
     summary: str = ""
     key_action: str = ""
 
+    # Ek bilgiler
+    tags: list[str] = field(default_factory=list)
+    response_needed: bool = False
+    deadline: str = ""
+
     # Meta bilgi
     tokens_used: int = 0
     processing_time_ms: float = 0.0
