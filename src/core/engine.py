@@ -41,7 +41,9 @@ class BriefMeEngine:
         log_event(self.logger, "PIPELINE_START", {"since": since.isoformat()})
 
         all_messages = await self._collect(since)
+        self._last_messages = all_messages
         results = await self._analyze(all_messages)
+        self._last_results = results
         report = self._build_report(all_messages, results)
         await self._notify(report)
 

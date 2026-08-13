@@ -2,6 +2,7 @@ import asyncio
 from src.core.engine import BriefMeEngine
 from src.connectors.gmail import GmailConnector
 from src.analyzers.email_analyzer import EmailAnalyzer
+from src.reporters.builder import ReportBuilder
 from datetime import datetime, timedelta
 
 
@@ -12,12 +13,11 @@ async def test():
 
     report = await engine.run(since=datetime.now() - timedelta(days=7))
 
-    print(f"\nToplam: {report.total_messages} mesaj")
-    print(f"Kaynaklar: {report.by_source}")
-    print(f"Kategoriler: {report.by_category}")
-    print(f"Duygular: {report.by_sentiment}")
-    print(f"Kritik: {len(report.critical_items)}")
-    print(f"Firsatlar: {len(report.opportunities)}")
+    builder = ReportBuilder()
+    filepath = builder.build(report, engine._last_messages, engine._last_results)
+
+    print(f"\nRapor oluşturuldu: {filepath}")
+    print(f"Tarayıcıda aç ve gör!")
 
 
 asyncio.run(test())
