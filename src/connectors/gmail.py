@@ -12,8 +12,10 @@ from src.connectors.base import BaseConnector, Message
 from src.utils.logger import get_logger, log_event
 from src.core.config import get_settings
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 
 class GmailConnector(BaseConnector):
 

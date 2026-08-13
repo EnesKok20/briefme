@@ -7,6 +7,8 @@ from src.utils.logger import get_logger
 from src.connectors.gmail import GmailConnector
 from src.analyzers.email_analyzer import EmailAnalyzer
 from src.connectors.instagram import InstagramConnector
+from src.notifiers.email_notifier import EmailNotifier
+
 
 
 def parse_args():
@@ -40,18 +42,31 @@ async def run_now():
 
     engine = BriefMeEngine()
 
+    engine.add_analyzer(EmailAnalyzer())
+
     if settings.enable_gmail:
-        engine.add_analyzer(EmailAnalyzer())
         engine.add_connector(GmailConnector())
-        engine.add_connector(InstagramConnector())
+
+    # if settings.enable_instagram:
+    #     engine.add_connector(InstagramConnector())
+
+    engine.add_notifier(EmailNotifier())
 
     if not engine.connectors:
         logger.warning("No connectors configured yet.")
         return
 
     report = await engine.run()
-    logger.info(f"Done. {report.total_messages} messages processed.")
 
+    # Rapor oluştur
+    from src.reporters.builder import ReportBuilder
+    builder = ReportBuilder()
+    builder.build(report, engine._last_messages, engine._last_results)
+
+    # Bildirimleri gönder
+    await engine._notify(report)
+
+    logger.info(f"Done. {report.total_messages} messages processed.")
 
 def main():
     args = parse_args()
@@ -59,7 +74,8 @@ def main():
     if args.run_now:
         asyncio.run(run_now())
     elif args.start:
-        print("Scheduler mode — coming soon")
+        from src.scheduler.jobs import start_scheduler
+        start_scheduler()
     elif args.dashboard:
         print("Dashboard mode — coming soon")
     else:
