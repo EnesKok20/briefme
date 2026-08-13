@@ -10,3 +10,4 @@ logs/*.log
 credentials.json
 token.json
 token.pickle
+reports/
