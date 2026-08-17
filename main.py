@@ -1,13 +1,10 @@
 import argparse
 import asyncio
+import sys
 
-from src.core.engine import BriefMeEngine
-from src.core.config import get_settings
+from src.core.pipeline import build_engine
+from src.core.config import get_settings, ConfigError
 from src.utils.logger import get_logger
-from src.connectors.gmail import GmailConnector
-from src.analyzers.email_analyzer import EmailAnalyzer
-from src.connectors.instagram import InstagramConnector
-from src.notifiers.email_notifier import EmailNotifier
 
 
 
@@ -40,17 +37,11 @@ async def run_now():
     logger.info("BriefMe starting (manual run)")
     logger.info(f"AI Provider: {settings.ai_provider}")
 
-    engine = BriefMeEngine()
-
-    engine.add_analyzer(EmailAnalyzer())
-
-    if settings.enable_gmail:
-        engine.add_connector(GmailConnector())
-
-    # if settings.enable_instagram:
-    #     engine.add_connector(InstagramConnector())
-
-    engine.add_notifier(EmailNotifier())
+    try:
+        engine = build_engine(settings)
+    except ConfigError as e:
+        logger.error(str(e))
+        sys.exit(1)
 
     if not engine.connectors:
         logger.warning("No connectors configured yet.")

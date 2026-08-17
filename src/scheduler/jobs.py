@@ -1,12 +1,8 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime, timedelta
 import asyncio
 
-from src.core.engine import BriefMeEngine
-from src.connectors.gmail import GmailConnector
-from src.analyzers.email_analyzer import EmailAnalyzer
-from src.notifiers.email_notifier import EmailNotifier
+from src.core.pipeline import build_engine
 from src.reporters.builder import ReportBuilder
 from src.core.config import get_settings
 from src.utils.logger import get_logger
@@ -19,12 +15,12 @@ async def daily_briefing():
     logger.info("Daily briefing started")
 
     try:
-        engine = BriefMeEngine()
         settings = get_settings()
+        engine = build_engine(settings)
 
-        engine.add_connector(GmailConnector())
-        engine.add_analyzer(EmailAnalyzer())
-        engine.add_notifier(EmailNotifier())
+        if not engine.connectors:
+            logger.warning("No connectors configured — skipping this run.")
+            return
 
         report = await engine.run()
 

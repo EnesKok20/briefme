@@ -45,8 +45,11 @@ class BriefMeEngine:
         results = await self._analyze(all_messages)
         self._last_results = results
         report = self._build_report(all_messages, results)
-        await self._notify(report)
 
+        # Not: bildirim burada gönderilmiyor. Çağıran taraf önce ReportBuilder
+        # ile HTML raporu oluşturup report.summary_html'i doldurmalı, sonra
+        # _notify()'ı kendisi çağırmalı — aksi halde her çalıştırmada rapor
+        # iki kere gönderilir.
         log_event(self.logger, "PIPELINE_DONE", {
             "total_messages": len(all_messages),
         })
@@ -108,6 +111,9 @@ class BriefMeEngine:
         by_source = {}
         by_category = {}
         by_sentiment = {}
+        by_priority = {}
+        threat_count = 0
+        all_items = []
         critical_items = []
         opportunities = []
 
@@ -115,22 +121,38 @@ class BriefMeEngine:
             by_source[msg.source] = by_source.get(msg.source, 0) + 1
             by_category[result.category] = by_category.get(result.category, 0) + 1
             by_sentiment[result.sentiment] = by_sentiment.get(result.sentiment, 0) + 1
+            by_priority[result.priority] = by_priority.get(result.priority, 0) + 1
+            if result.is_threat:
+                threat_count += 1
+
+            # Web raporu ve email bildirimi aynı zenginleştirilmiş veriden
+            # besleniyor; sadece "source/sender/subject/summary" değil,
+            # kategori/duygu/etiket/aksiyon/son tarih de taşınıyor.
+            item = {
+                "message_id": result.message_id,
+                "source": msg.source,
+                "sender": msg.sender_name or msg.sender,
+                "subject": msg.subject,
+                "summary": result.summary,
+                "category": result.category,
+                "sentiment": result.sentiment,
+                "priority": result.priority,
+                "priority_score": result.priority_score,
+                "key_action": result.key_action,
+                "tags": result.tags,
+                "response_needed": result.response_needed,
+                "deadline": result.deadline,
+                "is_threat": result.is_threat,
+            }
+            all_items.append(item)
 
             if result.priority == "critical":
-                critical_items.append({
-                    "source": msg.source,
-                    "sender": msg.sender_name or msg.sender,
-                    "subject": msg.subject,
-                    "summary": result.summary,
-                })
+                critical_items.append(item)
 
             if result.sentiment == "positive" and result.priority_score > 60:
-                opportunities.append({
-                    "source": msg.source,
-                    "sender": msg.sender_name or msg.sender,
-                    "subject": msg.subject,
-                    "summary": result.summary,
-                })
+                opportunities.append(item)
+
+        all_items.sort(key=lambda i: i["priority_score"], reverse=True)
 
         report = Report(
             date=datetime.now().strftime("%Y-%m-%d"),
@@ -138,8 +160,11 @@ class BriefMeEngine:
             by_source=by_source,
             by_category=by_category,
             by_sentiment=by_sentiment,
+            by_priority=by_priority,
+            threat_count=threat_count,
             critical_items=critical_items,
             opportunities=opportunities,
+            all_items=all_items,
         )
 
         self.logger.info(

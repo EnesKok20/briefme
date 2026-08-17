@@ -109,29 +109,45 @@ class GmailConnector(BaseConnector):
         return messages
 
     def _extract_body(self, msg_data: dict) -> str:
-        """Email gövdesini çıkar."""
+        """Email gövdesini çıkar. Ekli dosyası olan mailler genelde
+        multipart/mixed içine multipart/alternative gömer, bu yüzden
+        parçalar iç içe geçebilir — düz (tek seviye) tarama bu durumda
+        gövdeyi kaçırıp snippet'e düşerdi, o yüzden recursive tarıyoruz."""
         payload = msg_data.get("payload", {})
 
-        # Basit mesaj
         if "body" in payload and payload["body"].get("data"):
-            return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="ignore")
+            return self._decode_part(payload["body"]["data"])
 
-        # Çok parçalı mesaj (multipart)
-        parts = payload.get("parts", [])
-        for part in parts:
-            if part.get("mimeType") == "text/plain":
-                data = part.get("body", {}).get("data", "")
-                if data:
-                    return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+        plain = self._find_part(payload, "text/plain")
+        if plain:
+            return plain
 
-        # HTML varsa onu al
-        for part in parts:
-            if part.get("mimeType") == "text/html":
-                data = part.get("body", {}).get("data", "")
-                if data:
-                    return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+        html_body = self._find_part(payload, "text/html")
+        if html_body:
+            return html_body
 
         return msg_data.get("snippet", "")
+
+    def _find_part(self, payload: dict, mime_type: str) -> str:
+        """Verilen mime type'a sahip ilk parçayı, iç içe multipart'lar
+        dahil olmak üzere derinlemesine arar."""
+        for part in payload.get("parts", []):
+            if part.get("mimeType") == mime_type:
+                data = part.get("body", {}).get("data", "")
+                if data:
+                    return self._decode_part(data)
+            if part.get("parts"):
+                nested = self._find_part(part, mime_type)
+                if nested:
+                    return nested
+        return ""
+
+    @staticmethod
+    def _decode_part(data: str) -> str:
+        try:
+            return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+        except Exception:
+            return ""
 
     def _parse_sender_name(self, from_header: str) -> str:
         """'Enes Kok <enes@mail.com>' -> 'Enes Kok'"""
@@ -140,9 +156,17 @@ class GmailConnector(BaseConnector):
         return from_header
 
     def _parse_date(self, date_str: str) -> datetime:
-        """Email tarih header'ını datetime'a çevir."""
+        """Email tarih header'ını datetime'a çevir. `parsedate_to_datetime`
+        header'da saat dilimi varsa (neredeyse her zaman) timezone-aware bir
+        datetime döner; sistemin geri kalanı (Message.timestamp default'u,
+        diğer connector'lar) naive datetime kullanıyor, o yüzden yerel saate
+        çevirip tzinfo'yu düşürüyoruz — aksi halde ileride naive/aware
+        datetime karşılaştırması sessizce TypeError patlatabilir."""
         try:
-            return parsedate_to_datetime(date_str)
+            parsed = parsedate_to_datetime(date_str)
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone().replace(tzinfo=None)
+            return parsed
         except Exception:
             return datetime.now()
 

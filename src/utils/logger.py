@@ -1,5 +1,6 @@
 import logging
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -33,7 +34,14 @@ def get_logger(name: str, log_dir: str = "logs") -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Konsola yaz
+    # Konsola yaz (Windows'ta varsayılan konsol kod sayfası Türkçe
+    # karakterleri bozduğu için StreamHandler'ın kullandığı stderr'i
+    # UTF-8'e zorluyoruz — StreamHandler(), argümansız çağrıldığında
+    # stdout'a değil stderr'e yazar)
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
     ch.setFormatter(console_fmt)

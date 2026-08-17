@@ -43,11 +43,9 @@ class ReportBuilder:
         if messages and results:
             message_cards = self._build_message_cards(messages, results)
 
-        threat_count = sum(1 for r in (results or []) if getattr(r, "is_threat", False))
-
         html_content = self._get_html_template(
             report=report,
-            threat_count=threat_count,
+            threat_count=report.threat_count,
             source_chart=source_chart,
             category_chart=category_chart,
             sentiment_gauge=sentiment_gauge,
@@ -72,6 +70,64 @@ class ReportBuilder:
         icon = SOURCE_ICONS.get(source, "•")
         return f'<span class="source-dot" style="--dot:{color}" title="{html.escape(source.capitalize())}">{icon}</span>'
 
+    def _render_card(self, item: dict, extra_class: str = "") -> str:
+        """Tek bir mesaj kartının HTML'ini üretir. `_build_section` (kritik/
+        fırsat) ve `_build_message_cards` (tüm mesajlar) aynı zenginleştirilmiş
+        item şeklini (bkz. BriefMeEngine._build_report) paylaştığı için tek
+        bir render fonksiyonundan besleniyor."""
+        source = item.get("source", "")
+        sender = html.escape(str(item.get("sender") or "Bilinmeyen"))
+        subject = html.escape(str(item.get("subject", "")))
+        summary = html.escape(str(item.get("summary", "")))
+        category = item.get("category") or "uncategorized"
+        sentiment = item.get("sentiment") or "neutral"
+        priority = item.get("priority") or "normal"
+        key_action = html.escape(str(item.get("key_action", "") or ""))
+        tags = item.get("tags") or []
+        response_needed = item.get("response_needed", False)
+        deadline = item.get("deadline", "")
+        is_threat = item.get("is_threat", False)
+
+        cat_esc = html.escape(category)
+        sent_esc = html.escape(sentiment)
+        pr_esc = html.escape(priority)
+
+        tag_html = ""
+        if tags:
+            tag_html = '<div class="tags">' + "".join(
+                f'<span class="tag">{html.escape(str(t))}</span>' for t in tags
+            ) + "</div>"
+
+        action_html = f'<div class="action">→ {key_action}</div>' if key_action else ""
+
+        meta_chips = ""
+        if is_threat:
+            meta_chips += '<span class="chip chip-threat">⚠ Tehdit tespit edildi</span>'
+        if response_needed:
+            meta_chips += '<span class="chip chip-response">⏰ Yanıt gerekli</span>'
+        if deadline:
+            meta_chips += f'<span class="chip chip-deadline">📅 {html.escape(str(deadline))}</span>'
+        meta_html = f'<div class="meta-chips">{meta_chips}</div>' if meta_chips else ""
+
+        search_blob = html.escape(f"{sender} {subject}".lower())
+        classes = f"message-card {pr_esc}" + (f" {extra_class}" if extra_class else "")
+
+        return f"""
+            <div class="{classes}" data-priority="{pr_esc}" data-category="{cat_esc}" data-search="{search_blob}">
+                <div class="card-top">
+                    {self._source_dot(source)}
+                    <span class="badge {cat_esc}">{CATEGORY_LABELS.get(category, category.capitalize())}</span>
+                    <span class="badge {sent_esc}">{SENTIMENT_LABELS.get(sentiment, sentiment.capitalize())}</span>
+                    <span class="priority-tag {pr_esc}">{PRIORITY_LABELS.get(priority, priority.capitalize())}</span>
+                </div>
+                <div class="sender">{sender}</div>
+                <div class="subject">{subject}</div>
+                <div class="summary">{summary}</div>
+                {action_html}
+                {meta_html}
+                {tag_html}
+            </div>"""
+
     def _build_section(self, items: List[dict], section_type: str) -> str:
         """Kritik veya fırsat öğeleri için özel bölüm kartları oluşturur."""
         if not items:
@@ -81,23 +137,7 @@ class ReportBuilder:
         titles = {"critical": "Kritik & Acil", "opportunity": "Fırsatlar & Güzel Haberler"}
         anchors = {"critical": "critical", "opportunity": "opportunities"}
 
-        cards = ""
-        for item in items:
-            source = html.escape(item.get("source", ""))
-            sender = html.escape(item.get("sender", "Bilinmeyen"))
-            subject = html.escape(item.get("subject", ""))
-            summary = html.escape(item.get("summary", ""))
-
-            cards += f"""
-            <div class="message-card {section_type}">
-                <div class="card-top">
-                    {self._source_dot(item.get("source", ""))}
-                    <span class="badge {source}">{CATEGORY_LABELS.get(source, source.capitalize())}</span>
-                </div>
-                <div class="sender">{sender}</div>
-                <div class="subject">{subject}</div>
-                <div class="summary">{summary}</div>
-            </div>"""
+        cards = "".join(self._render_card(item, extra_class=section_type) for item in items)
 
         return f"""
         <section class="section" id="{anchors.get(section_type, '')}">
@@ -109,59 +149,21 @@ class ReportBuilder:
         """Tüm mesajlar için filtrelenebilir, detaylı kartlar üretir."""
         cards = ""
         for msg, result in zip(messages, results):
-            category = getattr(result, "category", "uncategorized") or "uncategorized"
-            sentiment = getattr(result, "sentiment", "neutral") or "neutral"
-            priority = getattr(result, "priority", "normal") or "normal"
-            source = getattr(msg, "source", "")
-            is_threat = getattr(result, "is_threat", False)
-            response_needed = getattr(result, "response_needed", False)
-            deadline = getattr(result, "deadline", "")
-            summary = html.escape(getattr(result, "summary", ""))
-            key_action = html.escape(getattr(result, "key_action", ""))
-            tags = getattr(result, "tags", [])
-
-            tag_html = ""
-            if tags:
-                tag_html = '<div class="tags">' + "".join(
-                    f'<span class="tag">{html.escape(str(t))}</span>' for t in tags
-                ) + "</div>"
-
-            action_html = ""
-            if key_action:
-                action_html = f'<div class="action">→ {key_action}</div>'
-
-            meta_chips = ""
-            if is_threat:
-                meta_chips += '<span class="chip chip-threat">⚠ Tehdit tespit edildi</span>'
-            if response_needed:
-                meta_chips += '<span class="chip chip-response">⏰ Yanıt gerekli</span>'
-            if deadline:
-                meta_chips += f'<span class="chip chip-deadline">📅 {html.escape(str(deadline))}</span>'
-            meta_html = f'<div class="meta-chips">{meta_chips}</div>' if meta_chips else ""
-
-            sender_name = html.escape(getattr(msg, "sender_name", None) or getattr(msg, "sender", "Bilinmeyen"))
-            subject = html.escape(getattr(msg, "subject", ""))
-            search_blob = html.escape(f"{sender_name} {subject}".lower())
-
-            cat_esc = html.escape(category)
-            sent_esc = html.escape(sentiment)
-            pr_esc = html.escape(priority)
-
-            cards += f"""
-            <div class="message-card {pr_esc}" data-priority="{pr_esc}" data-category="{cat_esc}" data-search="{search_blob}">
-                <div class="card-top">
-                    {self._source_dot(source)}
-                    <span class="badge {cat_esc}">{CATEGORY_LABELS.get(category, category.capitalize())}</span>
-                    <span class="badge {sent_esc}">{SENTIMENT_LABELS.get(sentiment, sentiment.capitalize())}</span>
-                    <span class="priority-tag {pr_esc}">{PRIORITY_LABELS.get(priority, priority.capitalize())}</span>
-                </div>
-                <div class="sender">{sender_name}</div>
-                <div class="subject">{subject}</div>
-                <div class="summary">{summary}</div>
-                {action_html}
-                {meta_html}
-                {tag_html}
-            </div>"""
+            item = {
+                "source": getattr(msg, "source", ""),
+                "sender": getattr(msg, "sender_name", None) or getattr(msg, "sender", "Bilinmeyen"),
+                "subject": getattr(msg, "subject", ""),
+                "summary": getattr(result, "summary", ""),
+                "category": getattr(result, "category", "uncategorized"),
+                "sentiment": getattr(result, "sentiment", "neutral"),
+                "priority": getattr(result, "priority", "normal"),
+                "key_action": getattr(result, "key_action", ""),
+                "tags": getattr(result, "tags", []),
+                "response_needed": getattr(result, "response_needed", False),
+                "deadline": getattr(result, "deadline", ""),
+                "is_threat": getattr(result, "is_threat", False),
+            }
+            cards += self._render_card(item)
 
         return f"""
         <section class="section" id="messages">

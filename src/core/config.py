@@ -1,12 +1,19 @@
 from pydantic_settings import BaseSettings    #.env dosyasini okumamizi sağlar.
 from typing import Literal
 
+
+class ConfigError(RuntimeError):
+    """.env'de eksik/hatalı bir ayar yüzünden pipeline başlatılamadığında
+    fırlatılır — çağıran taraf bunu yakalayıp kullanıcıya ham bir Python
+    traceback yerine anlaşılır bir mesaj gösterebilir."""
+
+
 class Settings(BaseSettings):
     """uygulama ayarlari.Tüm değerler .env dosyasından okunur"""
 
     ai_provider: Literal["claude","openai","gemini"] = "gemini"
     anthropic_api_key: str= ""
-    apenai_api_key: str=""
+    openai_api_key: str=""
     gemini_api_key: str=""
 
     #Gmail
@@ -14,7 +21,9 @@ class Settings(BaseSettings):
     gmail_credentials_path: str = "credentials.json"
 
     #Linkedin
-    enable_linkedin : bool = True
+    enable_linkedin: bool = True
+    linkedin_email: str = ""
+    linkedin_password: str = ""
 
     # Instagram
     enable_instagram: bool = True

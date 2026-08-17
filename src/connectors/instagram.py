@@ -1,12 +1,27 @@
+import asyncio
 from datetime import datetime
 from instagrapi import Client
+from instagrapi.exceptions import (
+    BadPassword, ChallengeRequired, TwoFactorRequired, ClientLoginRequired,
+)
 
 from src.connectors.base import BaseConnector, Message
 from src.utils.logger import get_logger, log_event
 from src.core.config import get_settings
 
+CONNECT_TIMEOUT_S = 45
+FETCH_TIMEOUT_S = 60
+
 
 class InstagramConnector(BaseConnector):
+    """Instagram DM'lerini ve takip isteklerini çeken connector.
+
+    Instagram resmi API'si üçüncü taraf uygulamalara kişisel DM erişimi
+    vermediği için `instagrapi` (resmi olmayan, senkron bir kütüphane)
+    kullanılıyor. Senkron çağrılar `asyncio.to_thread` ile ayrı bir thread'e
+    taşınıp süre sınırına bağlanıyor; aksi halde 2FA/challenge gibi
+    yanıt bekleyen bir adımda tüm pipeline süresiz kilitlenebiliyordu.
+    """
 
     def __init__(self):
         self.client = None
@@ -17,32 +32,57 @@ class InstagramConnector(BaseConnector):
     def name(self) -> str:
         return "instagram"
 
-    async def connect(self) -> bool:
-        self.logger.info("Connecting to Instagram...")
-
+    def _login(self) -> None:
         self.client = Client()
         self.client.delay_range = [1, 3]
         self.client.request_timeout = 30
+        self.client.login(
+            self.settings.instagram_username,
+            self.settings.instagram_password,
+        )
 
+    async def connect(self) -> bool:
+        self.logger.info("Connecting to Instagram...")
         try:
-            self.client.login(
-                self.settings.instagram_username,
-                self.settings.instagram_password,
-            )
+            await asyncio.wait_for(asyncio.to_thread(self._login), timeout=CONNECT_TIMEOUT_S)
             self.logger.info("Instagram connected successfully")
             return True
+        except asyncio.TimeoutError:
+            self.logger.error(f"Instagram girişi {CONNECT_TIMEOUT_S}s içinde tamamlanamadı (muhtemelen 2FA/challenge bekleniyor)")
+            return False
+        except TwoFactorRequired:
+            self.logger.error("Instagram girişi 2FA doğrulaması istiyor — otomatik girişte desteklenmiyor, hesap ayarlarından 2FA'yı geçici kapatman gerekebilir")
+            return False
+        except ChallengeRequired:
+            self.logger.error("Instagram güvenlik kontrolü (challenge) istedi — Instagram uygulamasından/tarayıcıdan giriş yapıp doğrulamayı tamamla, sonra tekrar dene")
+            return False
+        except BadPassword:
+            self.logger.error("Instagram kullanıcı adı veya şifresi yanlış")
+            return False
+        except ClientLoginRequired as e:
+            self.logger.error(f"Instagram oturumu geçersiz, yeniden giriş gerekiyor: {e}")
+            return False
         except Exception as e:
             self.logger.error(f"Instagram login failed: {e}")
             return False
 
     async def fetch_messages(self, since: datetime) -> list[Message]:
-        messages = []
+        if not self.client:
+            return []
 
-        dm_messages = self._fetch_dms(since)
-        messages.extend(dm_messages)
+        try:
+            dm_messages = await asyncio.wait_for(asyncio.to_thread(self._fetch_dms, since), timeout=FETCH_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            self.logger.error("Instagram DM taraması zaman aşımına uğradı")
+            dm_messages = []
 
-        follow_requests = self._fetch_follow_requests()
-        messages.extend(follow_requests)
+        try:
+            follow_requests = await asyncio.wait_for(asyncio.to_thread(self._fetch_follow_requests), timeout=FETCH_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            self.logger.error("Instagram takip istekleri taraması zaman aşımına uğradı")
+            follow_requests = []
+
+        messages = [*dm_messages, *follow_requests]
 
         log_event(self.logger, "FETCH_DONE", {
             "source": "instagram",

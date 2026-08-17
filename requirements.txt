@@ -1,0 +1,26 @@
+# --- Core ---
+pydantic==2.12.5
+pydantic-settings==2.13.1
+python-dotenv==1.2.1
+
+# --- Gmail connector + email notifier ---
+google-api-python-client==2.198.0
+google-auth==2.56.3
+google-auth-oauthlib==1.4.0
+
+# --- AI analyzer (Gemini) ---
+google-genai==2.18.0
+
+# --- Reports ---
+plotly==6.9.0
+
+# --- Scheduler ---
+APScheduler==3.11.3
+
+# --- Instagram connector (optional, ENABLE_INSTAGRAM in .env) ---
+instagrapi==2.18.14
+
+# --- LinkedIn connector (optional, unofficial API, ENABLE_LINKEDIN in .env) ---
+linkedin-api==2.3.1
+lxml>=6.0
+beautifulsoup4==4.15.0
