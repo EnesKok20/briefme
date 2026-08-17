@@ -12,6 +12,33 @@ BriefMe is an AI-powered automation system that reads your messages, understands
 
 --------
 
+## Screenshots
+
+*Sample data — fictional names and messages, generated to show the layout.*
+
+<table>
+<tr>
+<td width="50%">
+
+**Web dashboard** (`reports/*.html`)
+
+<img src="docs/screenshots/dashboard-overview.png" alt="BriefMe web dashboard overview" width="100%">
+<img src="docs/screenshots/dashboard-cards.png" alt="BriefMe critical message cards" width="100%">
+
+</td>
+<td width="50%">
+
+**Daily email**
+
+<img src="docs/screenshots/email-overview.png" alt="BriefMe daily email overview" width="100%">
+<img src="docs/screenshots/email-cards.png" alt="BriefMe email critical card with Gmail deep link" width="100%">
+
+</td>
+</tr>
+</table>
+
+---
+
 ## What You Get Every Day
 
 At 6 PM (or whenever you set it), BriefMe sends you a clean, visual HTML email — stat tiles, a source/category/priority breakdown, and a full sorted list of the day's messages, each with a one-click "Open in Gmail" link. A matching (and more detailed) HTML report is also saved locally under `reports/`.
